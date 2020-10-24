@@ -1,4 +1,7 @@
 # EfficientDet
+
+Fork from xuannianzs EFficientDet [implementation](https://github.com/xuannianz/EfficientDet). Repo was adjusted to detect persons in the pcds dataset.
+
 This is an implementation of [EfficientDet](https://arxiv.org/pdf/1911.09070.pdf) for object detection on Keras and Tensorflow. 
 The project is based on the official implementation [google/automl](https://github.com/google/automl), [fizyr/keras-retinanet](https://github.com/fizyr/keras-retinanet)
 and the [qubvel/efficientnet](https://github.com/qubvel/efficientnet). 
