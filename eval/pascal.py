@@ -18,7 +18,7 @@ limitations under the License.
 from tensorflow import keras
 import tensorflow as tf
 from eval.common import evaluate
-
+from utils.csv_logger import log_run
 
 class Evaluate(keras.callbacks.Callback):
     """
@@ -35,7 +35,8 @@ class Evaluate(keras.callbacks.Callback):
         save_path=None,
         tensorboard=None,
         weighted_average=False,
-        verbose=1
+        verbose=1,
+        args=None
     ):
         """
         Evaluate a given dataset using a given model at the end of every epoch during training.
@@ -59,7 +60,7 @@ class Evaluate(keras.callbacks.Callback):
         self.weighted_average = weighted_average
         self.verbose = verbose
         self.active_model = model
-
+        self.args = args
         super(Evaluate, self).__init__()
 
     def on_epoch_end(self, epoch, logs=None):
@@ -103,3 +104,6 @@ class Evaluate(keras.callbacks.Callback):
 
         if self.verbose == 1:
             print('mAP: {:.4f}'.format(self.mean_ap))
+
+    def on_train_end(self, logs): 
+        log_run(self.args, logs)
