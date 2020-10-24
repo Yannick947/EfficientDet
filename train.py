@@ -34,7 +34,8 @@ from augmentor.misc import MiscEffect
 from model import efficientdet
 from losses import smooth_l1, focal, smooth_l1_quad
 from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
-
+from utils import csv_logger
+from eval.common import evaluate
 
 def makedirs(path):
     # Intended behavior: try to create the directory,
@@ -81,7 +82,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
             log_dir=args.tensorboard_dir,
             histogram_freq=0,
             batch_size=args.batch_size,
-            write_graph=True,
+            write_graph=False,
             write_grads=False,
             write_images=False,
             embeddings_freq=0,
@@ -97,7 +98,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
             evaluation = Evaluate(validation_generator, prediction_model, tensorboard=tensorboard_callback)
         else:
             from eval.pascal import Evaluate
-            evaluation = Evaluate(validation_generator, prediction_model, tensorboard=tensorboard_callback)
+            evaluation = Evaluate(validation_generator, prediction_model, tensorboard=tensorboard_callback, args=args)
         callbacks.append(evaluation)
 
     # save the model
@@ -107,27 +108,35 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         checkpoint = keras.callbacks.ModelCheckpoint(
             os.path.join(
                 args.snapshot_path,
-                f'{args.dataset_type}_{{epoch:02d}}_{{loss:.4f}}_{{val_loss:.4f}}.h5' if args.compute_val_loss
-                else f'{args.dataset_type}_{{epoch:02d}}_{{loss:.4f}}.h5'
+                f'{args.dataset_type}_{{epoch:02d}}_{{loss:.4f}}_{{val_loss:.4f}}_{{mAP:.4f}}.h5' if args.compute_val_loss
+                else f'{args.dataset_type}_{{epoch:02d}}_{{loss:.4f}}_{{mAP:.4f}}.h5'
             ),
             verbose=1,
             save_weights_only=True,
-            # save_best_only=True,
-            # monitor="mAP",
-            # mode='max'
+            save_best_only=True,
+            monitor="mAP",
+            mode='max'
         )
         callbacks.append(checkpoint)
 
-    # callbacks.append(keras.callbacks.ReduceLROnPlateau(
-    #     monitor='loss',
-    #     factor=0.1,
-    #     patience=2,
-    #     verbose=1,
-    #     mode='auto',
-    #     min_delta=0.0001,
-    #     cooldown=0,
-    #     min_lr=0
-    # ))
+    callbacks.append(keras.callbacks.ReduceLROnPlateau(
+        monitor='mAP',
+        factor=0.5,
+        patience=20,
+        verbose=1,
+        mode='max',
+        min_delta=0.0001,
+        cooldown=3,
+        min_lr=0.00001
+    ))
+
+    # hparams = {
+    #     'lr': args.lr, 
+    #     'freeze_backbone': args.freeze_backbone, 
+    #     'augmentation': True if args.random_transform else False,
+    # }
+
+    # callbacks.append(hp.KerasCallback(args.tensorboard_dir, hparams))
 
     return callbacks
 
@@ -243,7 +252,7 @@ def parse_args(args):
     Parse the arguments.
     """
     today = str(date.today())
-    parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
+    parser = argparse.ArgumentParser(description='Simple training script for training a EfficientDet network.')
     subparsers = parser.add_subparsers(help='Arguments for specific dataset types.', dest='dataset_type')
     subparsers.required = True
 
@@ -270,6 +279,7 @@ def parse_args(args):
     parser.add_argument('--phi', help='Hyper parameter phi', default=0, type=int, choices=(0, 1, 2, 3, 4, 5, 6))
     parser.add_argument('--gpu', help='Id of the GPU to use (as reported by nvidia-smi).')
     parser.add_argument('--epochs', help='Number of epochs to train.', type=int, default=50)
+    parser.add_argument('--lr', help='Learning rate to start with.', type=float, default=1e-4)
     parser.add_argument('--steps', help='Number of steps per epoch.', type=int, default=10000)
     parser.add_argument('--snapshot-path',
                         help='Path to store snapshots of models during training',
@@ -342,7 +352,7 @@ def main(args=None):
         model = keras.utils.multi_gpu_model(model, gpus=list(map(int, args.gpu.split(','))))
 
     # compile model
-    model.compile(optimizer=Adam(lr=1e-3), loss={
+    model.compile(optimizer=Adam(lr=args.lr), loss={
         'regression': smooth_l1_quad() if args.detect_quadrangle else smooth_l1(),
         'classification': focal()
     }, )
@@ -363,7 +373,7 @@ def main(args=None):
         raise ValueError('When you have no validation data, you should not specify --compute-val-loss.')
 
     # start training
-    return model.fit_generator(
+    model.fit_generator(
         generator=train_generator,
         steps_per_epoch=args.steps,
         initial_epoch=0,
@@ -375,6 +385,9 @@ def main(args=None):
         max_queue_size=args.max_queue_size,
         validation_data=validation_generator
     )
+
+    evaluate(validation_generator, model, score_threshold=0.5)
+    evaluate(validation_generator, model, score_threshold=0.5, visualize=True)
 
 
 if __name__ == '__main__':
